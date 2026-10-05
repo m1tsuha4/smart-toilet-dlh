@@ -394,7 +394,7 @@ function SettingsPage() {
                     ) : (
                       gates.map((device) => {
                         const isOnline =
-                          device.status?.toUpperCase() === "ONLINE";
+                          device.status?.toUpperCase() === "ACTIVE";
 
                         return (
                           <tr key={device.id || device.deviceCode} className="hover:bg-gray-50/50">
@@ -419,7 +419,7 @@ function SettingsPage() {
                                 ) : (
                                   <WifiOff className="h-2.5 w-2.5" />
                                 )}
-                                {isOnline ? "ONLINE" : "OFFLINE"}
+                                {isOnline ? "ACTIVE" : "OFFLINE"}
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right">
