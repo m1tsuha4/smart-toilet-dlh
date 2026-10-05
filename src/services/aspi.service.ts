@@ -27,8 +27,21 @@ export interface AspiPaymentResponse {
 }
 
 export const aspiService = {
-  generateQr: async () => {
-    return apiClient.post<AspiQrData>("/aspi/qr", {});
+  
+  generateQr: async (payload: Record<string, unknown> = { deviceCode: "GATE-001" }) => {
+        const token =
+      typeof window !== "undefined" ? localStorage.getItem("auth-token") : null;
+
+    const authHeader = token
+      ? token.startsWith("Bearer ")
+        ? token
+        : `Bearer ${token}`
+      : "";
+    return apiClient.post<AspiQrData>("/bri/generate-qr", payload,{
+      headers: {
+        Authorization: authHeader,
+      },
+    });
   },
 
   processPayment: async (payload: Record<string, unknown>) => {
