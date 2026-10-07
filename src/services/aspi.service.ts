@@ -28,6 +28,10 @@ export interface AspiPaymentResponse {
 
 export const aspiService = {
   generateQr: async () => {
-    return apiClient.post<AspiQrData>("/bri/generate-qr", {});
+    return apiClient.post<AspiQrData>("/aspi/qr", {});
+  },
+
+  processPayment: async (payload: Record<string, unknown>) => {
+    return apiClient.post<AspiPaymentResponse>("/aspi/payment", payload);
   },
 };
