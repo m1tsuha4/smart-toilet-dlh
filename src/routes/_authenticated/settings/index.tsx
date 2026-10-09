@@ -11,8 +11,11 @@ import {
   AlertCircle,
   Wifi,
   WifiOff,
-  KeyRound,
+  Power,
+  RefreshCw,
+  Clock,
 } from "lucide-react";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/settings/")({
   component: SettingsPage,
@@ -39,13 +42,20 @@ function SettingsPage() {
     message: string;
   } | null>(null);
 
-  const [selectedGate, setSelectedGate] = useState<GateDevice | null>(null);
-  const [transactionIdInput, setTransactionIdInput] = useState("");
-  const [openingGate, setOpeningGate] = useState(false);
-  const [openFeedback, setOpenFeedback] = useState<{
+  const [actionState, setActionState] = useState<{
+    code: string;
+    type: "open" | "shutdown" | "reboot";
+  } | null>(null);
+
+  const [tableFeedback, setTableFeedback] = useState<{
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  const [scheduleGate, setScheduleGate] = useState<GateDevice | null>(null);
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [settingSchedule, setSettingSchedule] = useState(false);
+  const [loadingScheduleTime, setLoadingScheduleTime] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -113,6 +123,59 @@ function SettingsPage() {
       setSavingAmount(false);
     }
   };
+
+  const handleDirectAction = (
+    deviceCode: string,
+    deviceName: string,
+    actionType: "open" | "shutdown" | "reboot"
+  ) => {
+    const performAction = async () => {
+      setTableFeedback(null);
+      setActionState({ code: deviceCode, type: actionType });
+
+      try {
+        if (actionType === "open") {
+          await dashboardService.openGate({
+            deviceCode,
+            transactionId: `MANUAL-${Date.now().toString().slice(-6)}`,
+          });
+        } else if (actionType === "shutdown") {
+          await dashboardService.shutdownGate({ deviceCode });
+        } else if (actionType === "reboot") {
+          await dashboardService.rebootGate({ deviceCode });
+        }
+
+        toast.success(`Berhasil`, {
+          description: `Aksi ${actionType} berhasil dikirim ke ${deviceName}`,
+        });
+      } catch (err: unknown) {
+        const error = err as Error;
+        toast.error(`Gagal`, {
+          description: error.message || `Gagal melakukan aksi ${actionType}`,
+        });
+      } finally {
+        setActionState(null);
+      }
+    };
+
+    if (actionType === "shutdown" || actionType === "reboot") {
+      toast('Konfirmasi Aksi', {
+        description: `Apakah Anda yakin ingin melakukan ${actionType.toUpperCase()} pada perangkat ${deviceName}?`,
+        duration: 8000,
+        action: {
+          label: 'Ya, Lanjutkan',
+          onClick: () => performAction(),
+        },
+        cancel: {
+          label: 'Batal',
+          onClick: () => {},
+        },
+      });
+    } else {
+      performAction();
+    }
+  };
+
   const handleCreateGate = async (e: React.FormEvent) => {
     e.preventDefault();
     setGateFeedback(null);
@@ -152,34 +215,54 @@ function SettingsPage() {
     }
   };
 
-  const handleOpenGate = async () => {
-    if (!selectedGate) return;
-    setOpenFeedback(null);
+  
+
+  const handleOpenScheduleModal = async (device: GateDevice) => {
+    setScheduleGate(device);
+    setScheduleTime("");
+    setLoadingScheduleTime(true);
 
     try {
-      setOpeningGate(true);
-      await dashboardService.openGate({
-        deviceCode: selectedGate.deviceCode,
-        transactionId:
-          transactionIdInput.trim() || `MANUAL-${Date.now().toString().slice(-6)}`,
+      const res = await dashboardService.getShutdownSchedule(device.deviceCode);
+      const raw = res.data as any;
+      const fetchedTime = raw?.data?.time || raw?.time;
+      
+      if (fetchedTime) {
+        setScheduleTime(fetchedTime);
+      }
+    } catch (err) {
+      console.error("Gagal mengambil data jadwal shutdown:", err);
+    } finally {
+      setLoadingScheduleTime(false);
+    }
+  };
+
+  const handleSetSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scheduleGate || !scheduleTime) return;
+    
+    setTableFeedback(null);
+    try {
+      setSettingSchedule(true);
+      await dashboardService.setShutdownSchedule({
+        deviceCode: scheduleGate.deviceCode,
+        time: scheduleTime,
       });
-      setOpenFeedback({
+      setTableFeedback({
         type: "success",
-        message: `Sinyal buka berhasil dikirim ke ${selectedGate.name}`,
+        message: `Jadwal shutdown berhasil diatur untuk ${scheduleGate.name} pada ${scheduleTime}`,
       });
-      setTimeout(() => {
-        setSelectedGate(null);
-        setTransactionIdInput("");
-        setOpenFeedback(null);
-      }, 1500);
+      setScheduleGate(null);
+      setScheduleTime("");
+      setTimeout(() => setTableFeedback(null), 4000);
     } catch (err: unknown) {
       const error = err as Error;
-      setOpenFeedback({
+      setTableFeedback({
         type: "error",
-        message: error.message || "Gagal membuka gate",
+        message: error.message || "Gagal mengatur jadwal",
       });
     } finally {
-      setOpeningGate(false);
+      setSettingSchedule(false);
     }
   };
 
@@ -356,7 +439,7 @@ function SettingsPage() {
                     Daftar Perangkat Gate & Kontrol Pintu
                   </h2>
                   <p className="mt-0.5 text-[10px] text-gray-500">
-                    Monitoring koneksi perangkat dan override buka pintu secara manual.
+                    Monitoring koneksi perangkat dan override perangkat kontrol.
                   </p>
                 </div>
                 <button
@@ -366,6 +449,23 @@ function SettingsPage() {
                   Refresh Data
                 </button>
               </div>
+
+              {tableFeedback && (
+                <div
+                  className={`mt-3 flex items-center gap-1.5 rounded-md p-2 text-[10px] ${
+                    tableFeedback.type === "success"
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-rose-50 text-rose-700"
+                  }`}
+                >
+                  {tableFeedback.type === "success" ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  ) : (
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                  )}
+                  {tableFeedback.message}
+                </div>
+              )}
 
               <div className="mt-3 overflow-hidden rounded-lg border border-gray-100">
                 <table className="w-full text-left text-xs">
@@ -393,8 +493,7 @@ function SettingsPage() {
                       </tr>
                     ) : (
                       gates.map((device) => {
-                        const isOnline =
-                          device.status?.toUpperCase() === "ACTIVE";
+                        const isOnline = device.status?.toUpperCase() === "ACTIVE";
 
                         return (
                           <tr key={device.id || device.deviceCode} className="hover:bg-gray-50/50">
@@ -423,16 +522,52 @@ function SettingsPage() {
                               </span>
                             </td>
                             <td className="px-3 py-2 text-right">
-                              <button
-                                onClick={() => {
-                                  setSelectedGate(device);
-                                  setOpenFeedback(null);
-                                }}
-                                className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-[#1D408C] hover:bg-blue-100 transition shadow-2xs"
-                              >
-                                <DoorOpen className="h-3 w-3" />
-                                Buka Gate
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleDirectAction(device.deviceCode, device.name, "open")}
+                                  disabled={actionState !== null}
+                                  className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-1.5 text-[#1D408C] hover:bg-blue-100 transition shadow-2xs disabled:opacity-50"
+                                  title="Buka Gate"
+                                >
+                                  {actionState?.code === device.deviceCode && actionState?.type === "open" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <DoorOpen className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleDirectAction(device.deviceCode, device.name, "reboot")}
+                                  disabled={actionState !== null}
+                                  className="inline-flex items-center justify-center rounded-lg border border-amber-200 bg-amber-50 p-1.5 text-amber-700 hover:bg-amber-100 transition shadow-2xs disabled:opacity-50"
+                                  title="Reboot Perangkat"
+                                >
+                                  {actionState?.code === device.deviceCode && actionState?.type === "reboot" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleDirectAction(device.deviceCode, device.name, "shutdown")}
+                                  disabled={actionState !== null}
+                                  className="inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 p-1.5 text-rose-700 hover:bg-rose-100 transition shadow-2xs disabled:opacity-50"
+                                  title="Shutdown Perangkat"
+                                >
+                                  {actionState?.code === device.deviceCode && actionState?.type === "shutdown" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Power className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => handleOpenScheduleModal(device)}
+                                  disabled={actionState !== null}
+                                  className="inline-flex items-center justify-center rounded-lg border border-gray-200 bg-gray-50 p-1.5 text-gray-700 hover:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+                                  title="Atur Jadwal Shutdown"
+                                >
+                                  <Clock className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -446,79 +581,69 @@ function SettingsPage() {
         </div>
       </div>
 
-      {selectedGate && (
+      {scheduleGate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-2xs">
           <div className="w-full max-w-xs rounded-xl bg-white p-4 shadow-2xl animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-2.5">
-              <div className="rounded-lg bg-blue-50 p-2 text-[#1D408C]">
-                <DoorOpen className="h-5 w-5" />
+              <div className="rounded-lg bg-gray-50 p-2 text-gray-700">
+                <Clock className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-gray-900">Buka Gate Manual</h3>
+                <h3 className="text-xs font-bold text-gray-900">Jadwal Shutdown</h3>
                 <p className="text-[10px] text-gray-500">
-                  Target: <span className="font-semibold text-gray-800">{selectedGate.name}</span> ({selectedGate.deviceCode})
+                  Target: <span className="font-semibold text-gray-800">{scheduleGate.name}</span>
                 </p>
               </div>
             </div>
 
-            <div className="mt-3">
-              <label className="text-[10px] font-medium text-gray-700">
-                Transaction ID
+            <form onSubmit={handleSetSchedule} className="mt-3">
+              <label className="text-[10px] font-medium text-gray-700 flex items-center justify-between">
+                Waktu Shutdown (HH:MM)
               </label>
               <div className="relative mt-1">
                 <input
-                  type="text"
-                  value={transactionIdInput}
-                  onChange={(e) => setTransactionIdInput(e.target.value)}
-                  placeholder={`MANUAL-${Date.now().toString().slice(-6)}`}
-                  className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] font-mono outline-none focus:border-[#1D408C] focus:ring-1 focus:ring-blue-100"
+                  type="time"
+                  required
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  disabled={loadingScheduleTime}
+                  className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-[11px] outline-none focus:border-[#1D408C] focus:ring-1 focus:ring-blue-100 disabled:opacity-50 disabled:bg-gray-50 transition"
                 />
-                <KeyRound className="absolute right-2.5 top-2 h-3.5 w-3.5 text-gray-400" />
-              </div>
-            </div>
-
-            {openFeedback && (
-              <div
-                className={`mt-2.5 flex items-center gap-1.5 rounded-md p-2 text-[10px] ${
-                  openFeedback.type === "success"
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-rose-50 text-rose-700"
-                }`}
-              >
-                {openFeedback.type === "success" ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                ) : (
-                  <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                {loadingScheduleTime && (
+                  <div className="absolute right-2 top-1.5 bg-gray-50/80 backdrop-blur-sm pl-1">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#1D408C]" />
+                  </div>
                 )}
-                {openFeedback.message}
               </div>
-            )}
 
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                disabled={openingGate}
-                onClick={() => setSelectedGate(null)}
-                className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-gray-600 hover:bg-gray-100"
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                disabled={openingGate}
-                onClick={handleOpenGate}
-                className="flex items-center gap-1.5 rounded-lg bg-[#1D408C] px-3 py-1.5 text-[11px] font-semibold text-white shadow-2xs hover:bg-blue-900 disabled:opacity-50"
-              >
-                {openingGate ? (
-                  <>
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Mengirim...
-                  </>
-                ) : (
-                  "Konfirmasi Buka Gate"
-                )}
-              </button>
-            </div>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={settingSchedule || loadingScheduleTime}
+                  onClick={() => {
+                    setScheduleGate(null);
+                    setScheduleTime("");
+                  }}
+                  className="rounded-lg px-3 py-1.5 text-[11px] font-semibold text-gray-600 hover:bg-gray-100 disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={settingSchedule || !scheduleTime || loadingScheduleTime}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#1D408C] px-3 py-1.5 text-[11px] font-semibold text-white shadow-2xs hover:bg-blue-900 disabled:opacity-50 transition"
+                >
+                  {settingSchedule ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                      Menyimpan...
+                    </>
+                  ) : (
+                    "Simpan Jadwal"
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
