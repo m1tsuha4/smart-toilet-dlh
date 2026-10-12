@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",
@@ -11,7 +17,7 @@
           "key": "X-Content-Type-Options",
           "value": "nosniff"
         },
-        {
+      {
           "key": "Referrer-Policy",
           "value": "strict-origin-when-cross-origin"
         },
@@ -22,10 +28,6 @@
         {
           "key": "Strict-Transport-Security",
           "value": "max-age=63072000; includeSubDomains; preload"
-        },
-        {
-          "key": "Content-Security-Policy",
-          "value": "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https://gate-qris-api.ybbal.dev wss://gate-qris-api.ybbal.dev;"
         }
       ]
     }

@@ -47,6 +47,15 @@ export interface OpenGatePayload {
   transactionId: string;
 }
 
+export interface DeviceActionPayload {
+  deviceCode: string;
+}
+
+export interface ScheduleShutdownPayload {
+  deviceCode: string;
+  time: string;
+}
+
 export interface SettingsAmountPayload {
   amount: number;
 }
@@ -71,6 +80,22 @@ export const dashboardService = {
 
   openGate: async (payload: OpenGatePayload) => {
     return apiClient.post<{ success: boolean; message: string }>("/dashboard/gate-open", payload);
+  },
+
+  shutdownGate: async (payload: DeviceActionPayload) => {
+    return apiClient.post<{ success: boolean; message: string }>("/dashboard/gates/shutdown", payload);
+  },
+
+  rebootGate: async (payload: DeviceActionPayload) => {
+    return apiClient.post<{ success: boolean; message: string }>("/dashboard/gates/reboot", payload);
+  },
+
+  getShutdownSchedule: async (deviceCode: string) => {
+    return apiClient.get<{ success: boolean; data: any }>(`/dashboard/gates/shutdown-schedule?deviceCode=${deviceCode}`);
+  },
+
+  setShutdownSchedule: async (payload: ScheduleShutdownPayload) => {
+    return apiClient.post<{ success: boolean; message: string }>("/dashboard/gates/shutdown-schedule", payload);
   },
 
   getAmountSetting: async () => {
