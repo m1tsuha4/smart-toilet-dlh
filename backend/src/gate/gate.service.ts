@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  ConflictException,
   GatewayTimeoutException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
@@ -35,6 +37,32 @@ export class GateService {
         status: true,
       },
     });
+  }
+
+  async removeDevice(id: string) {
+    const device = await this.prisma.gateDevices.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!device) {
+      throw new NotFoundException('Gate device not found');
+    }
+
+    try {
+      return await this.prisma.gateDevices.delete({ where: { id } });
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'P2003'
+      ) {
+        throw new ConflictException(
+          'Gate device cannot be deleted because transactions reference it',
+        );
+      }
+      throw error;
+    }
   }
 
   async listDevices() {

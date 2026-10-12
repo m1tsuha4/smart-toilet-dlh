@@ -2,8 +2,10 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Patch,
+  Param,
   Post,
   Query,
   UseGuards,
@@ -59,6 +61,14 @@ export class DashboardController {
   })
   registerGate(@Body('name') name: string, @Body('deviceCode') deviceCode: string) {
     return this.gateService.registerDevice(name, deviceCode);
+  }
+
+  @Delete('gates/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPERADMIN')
+  @ApiBearerAuth()
+  removeGate(@Param('id') id: string) {
+    return this.gateService.removeDevice(id);
   }
 
   @Post('gates/shutdown')

@@ -5,7 +5,11 @@ import { Server } from 'socket.io';
 describe('GateService', () => {
   let service: GateService;
   let prisma: {
-    gateDevices: { findMany: jest.Mock; findUnique: jest.Mock };
+    gateDevices: {
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      delete: jest.Mock;
+    };
     gateOpenLog: {
       create: jest.Mock;
       findFirst: jest.Mock;
@@ -25,6 +29,7 @@ describe('GateService', () => {
         findUnique: jest
           .fn()
           .mockResolvedValue({ id: 'device-1', deviceCode: 'GATE-001' }),
+        delete: jest.fn().mockResolvedValue({ id: 'device-1' }),
       },
       gateOpenLog: {
         create: jest.fn().mockResolvedValue({ id: 'command-1' }),
@@ -101,6 +106,23 @@ describe('GateService', () => {
       select: { deviceCode: true },
       orderBy: { deviceCode: 'asc' },
     });
+  });
+
+  it('deletes a registered gate device by ID', async () => {
+    await expect(service.removeDevice('device-1')).resolves.toEqual({
+      id: 'device-1',
+    });
+    expect(prisma.gateDevices.delete).toHaveBeenCalledWith({
+      where: { id: 'device-1' },
+    });
+  });
+
+  it('rejects deleting a gate device referenced by transactions', async () => {
+    prisma.gateDevices.delete.mockRejectedValue({ code: 'P2003' });
+
+    await expect(service.removeDevice('device-1')).rejects.toThrow(
+      'Gate device cannot be deleted because transactions reference it',
+    );
   });
 
   it('opens the gate associated with the transaction', async () => {
