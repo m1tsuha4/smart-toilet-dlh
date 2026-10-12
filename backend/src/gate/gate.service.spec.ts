@@ -15,6 +15,7 @@ describe('GateService', () => {
     };
   };
   let emit: jest.Mock;
+  let emitWithAck: jest.Mock;
   let fetchSockets: jest.Mock;
 
   beforeEach(() => {
@@ -34,12 +35,18 @@ describe('GateService', () => {
       },
     };
     emit = jest.fn();
+    emitWithAck = jest.fn().mockResolvedValue([
+      { success: true, time: '21:50' },
+    ]);
     fetchSockets = jest.fn().mockResolvedValue([{}]);
 
     service = new GateService(prisma as unknown as PrismaService);
     service.setServer({
       in: jest.fn().mockReturnValue({ fetchSockets }),
-      to: jest.fn().mockReturnValue({ emit }),
+      to: jest.fn().mockReturnValue({
+        emit,
+        timeout: jest.fn().mockReturnValue({ emitWithAck }),
+      }),
     } as unknown as Server);
   });
 
@@ -107,6 +114,55 @@ describe('GateService', () => {
         deviceCode: 'GATE-001',
         source: 'PAYMENT',
       },
+    });
+  });
+
+  it('sends a validated shutdown schedule command to the connected device', async () => {
+    await expect(
+      service.sendSystemCommand('GATE-001', 'set-shutdown-schedule', '21:50'),
+    ).resolves.toMatchObject({
+      deviceCode: 'GATE-001',
+      action: 'set-shutdown-schedule',
+      sent: true,
+    });
+
+    expect(emit).toHaveBeenCalledWith(
+      'system:command',
+      expect.objectContaining({
+        deviceCode: 'GATE-001',
+        action: 'set-shutdown-schedule',
+        time: '21:50',
+      }),
+    );
+  });
+
+  it('rejects invalid schedule times before emitting a command', async () => {
+    await expect(
+      service.sendSystemCommand('GATE-001', 'set-shutdown-schedule', '25:99'),
+    ).rejects.toThrow('time must be HH:MM or null to disable');
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('reads the shutdown schedule from the connected device', async () => {
+    await expect(service.getShutdownSchedule('GATE-001')).resolves.toEqual({
+      deviceCode: 'GATE-001',
+      time: '21:50',
+    });
+    expect(emitWithAck).toHaveBeenCalledWith(
+      'system:command',
+      expect.objectContaining({
+        deviceCode: 'GATE-001',
+        action: 'get-shutdown-schedule',
+      }),
+    );
+  });
+
+  it('returns null when the device has no managed shutdown schedule', async () => {
+    emitWithAck.mockResolvedValue([{ success: true, time: null }]);
+
+    await expect(service.getShutdownSchedule('GATE-001')).resolves.toEqual({
+      deviceCode: 'GATE-001',
+      time: null,
     });
   });
 

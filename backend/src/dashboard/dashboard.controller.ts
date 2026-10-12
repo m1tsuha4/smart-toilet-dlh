@@ -61,6 +61,66 @@ export class DashboardController {
     return this.gateService.registerDevice(name, deviceCode);
   }
 
+  @Post('gates/shutdown')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPERADMIN')
+  @ApiBearerAuth()
+  @ApiBody({ schema: { example: { deviceCode: 'GATE-001' } } })
+  shutdownGateDevice(@Body('deviceCode') deviceCode: string) {
+    if (typeof deviceCode !== 'string' || !deviceCode.trim()) {
+      throw new BadRequestException('deviceCode is required');
+    }
+    return this.gateService.sendSystemCommand(deviceCode.trim(), 'shutdown');
+  }
+
+  @Post('gates/reboot')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPERADMIN')
+  @ApiBearerAuth()
+  @ApiBody({ schema: { example: { deviceCode: 'GATE-001' } } })
+  rebootGateDevice(@Body('deviceCode') deviceCode: string) {
+    if (typeof deviceCode !== 'string' || !deviceCode.trim()) {
+      throw new BadRequestException('deviceCode is required');
+    }
+    return this.gateService.sendSystemCommand(deviceCode.trim(), 'reboot');
+  }
+
+  @Post('gates/shutdown-schedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPERADMIN')
+  @ApiBearerAuth()
+  @ApiBody({
+    schema: { example: { deviceCode: 'GATE-001', time: '21:50' } },
+  })
+  setGateShutdownSchedule(
+    @Body('deviceCode') deviceCode: string,
+    @Body('time') time: string | null,
+  ) {
+    if (typeof deviceCode !== 'string' || !deviceCode.trim()) {
+      throw new BadRequestException('deviceCode is required');
+    }
+    if (time !== null && typeof time !== 'string') {
+      throw new BadRequestException('time must be HH:MM or null to disable');
+    }
+    return this.gateService.sendSystemCommand(
+      deviceCode.trim(),
+      'set-shutdown-schedule',
+      time,
+    );
+  }
+
+  @Get('gates/shutdown-schedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMIN', 'SUPERADMIN')
+  @ApiBearerAuth()
+  @ApiQuery({ name: 'deviceCode', required: true, example: 'GATE-001' })
+  getGateShutdownSchedule(@Query('deviceCode') deviceCode?: string) {
+    if (!deviceCode?.trim()) {
+      throw new BadRequestException('deviceCode is required');
+    }
+    return this.gateService.getShutdownSchedule(deviceCode.trim());
+  }
+
   @Post('gate-open')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMIN', 'SUPERADMIN')

@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  GatewayTimeoutException,
+  Injectable,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { Server } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -110,6 +116,100 @@ export class GateService {
     const partnerReferenceNo = payload.partnerReferenceNo;
     if (typeof partnerReferenceNo === 'string') {
       this.server?.to(`payment:${partnerReferenceNo}`).emit('payment:status', payload);
+    }
+  }
+
+  async sendSystemCommand(
+    deviceCode: string,
+    action: 'shutdown' | 'reboot' | 'set-shutdown-schedule',
+    time?: string | null,
+  ) {
+    const normalizedTime = typeof time === 'string' ? time.trim() : time;
+    if (
+      action === 'set-shutdown-schedule' &&
+      normalizedTime !== null &&
+      (typeof normalizedTime !== 'string' ||
+        !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(normalizedTime))
+    ) {
+      throw new BadRequestException('time must be HH:MM or null to disable');
+    }
+
+    const device = await this.prisma.gateDevices.findUnique({
+      where: { deviceCode },
+      select: { deviceCode: true },
+    });
+    if (!device) {
+      throw new BadRequestException(`Gate device "${deviceCode}" is not registered`);
+    }
+    if (!this.server) {
+      throw new BadRequestException('WebSocket server unavailable');
+    }
+
+    const room = `device:${deviceCode}`;
+    const connectedSockets = await this.server.in(room).fetchSockets();
+    if (connectedSockets.length === 0) {
+      throw new BadRequestException('Gate device is not connected');
+    }
+
+    const commandId = randomUUID();
+    this.server.to(room).emit('system:command', {
+      commandId,
+      deviceCode,
+      action,
+      ...(action === 'set-shutdown-schedule' ? { time: normalizedTime } : {}),
+    });
+
+    return { commandId, deviceCode, action, sent: true };
+  }
+
+  async getShutdownSchedule(deviceCode: string) {
+    const device = await this.prisma.gateDevices.findUnique({
+      where: { deviceCode },
+      select: { deviceCode: true },
+    });
+    if (!device) {
+      throw new BadRequestException(`Gate device "${deviceCode}" is not registered`);
+    }
+    if (!this.server) {
+      throw new ServiceUnavailableException('WebSocket server unavailable');
+    }
+
+    const room = `device:${deviceCode}`;
+    const connectedSockets = await this.server.in(room).fetchSockets();
+    if (connectedSockets.length === 0) {
+      throw new ServiceUnavailableException('Gate device is not connected');
+    }
+
+    try {
+      const responses = (await this.server
+        .to(room)
+        .timeout(5_000)
+        .emitWithAck('system:command', {
+          commandId: randomUUID(),
+          deviceCode,
+          action: 'get-shutdown-schedule',
+        })) as unknown as Array<Record<string, unknown>>;
+      const response = responses[0];
+      if (
+        !response ||
+        response.success !== true ||
+        (response.time !== null &&
+          (typeof response.time !== 'string' ||
+            !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(response.time)))
+      ) {
+        throw new ServiceUnavailableException(
+          typeof response?.error === 'string'
+            ? response.error
+            : 'Raspberry Pi returned an invalid shutdown schedule',
+        );
+      }
+
+      return { deviceCode, time: response.time };
+    } catch (error) {
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new GatewayTimeoutException(
+        'Raspberry Pi did not respond with its shutdown schedule',
+      );
     }
   }
 

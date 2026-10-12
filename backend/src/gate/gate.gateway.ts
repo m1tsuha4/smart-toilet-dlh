@@ -116,4 +116,20 @@ export class GateGateway
       ...(log ? { status: log.status, error: log.error } : {}),
     });
   }
+
+  @SubscribeMessage('system:ack')
+  acknowledgeSystemCommand(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: Record<string, unknown>,
+  ) {
+    const deviceCode = body.deviceCode;
+    if (
+      typeof deviceCode !== 'string' ||
+      !client.rooms.has(`device:${deviceCode}`)
+    ) {
+      return;
+    }
+
+    this.server.to('dashboard').emit('system:ack', body);
+  }
 }

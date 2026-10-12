@@ -367,21 +367,48 @@ export class BriService {
   ) {
     const statusCode = this.getString(payload, 'latestTransactionStatus');
     const responseCode = this.getString(payload, 'responseCode');
-    const success = statusCode === '00' || responseCode === '2000000';
-    const failed = ['01', '02', '03', '04', '05'].includes(statusCode ?? '');
+    const status = statusCode
+      ? this.mapTransactionStatus(statusCode)
+      : responseCode === '2000000'
+        ? 'SUCCESS'
+        : undefined;
 
-    if (!success && !failed) {
-      return { ...payload, localTransactionStatus: transaction.status };
+    if (!status) {
+      return {
+        ...payload,
+        localTransactionStatus: transaction.status,
+        ...(statusCode === '04'
+          ? {
+              externalTransactionStatus: statusCode,
+              transactionStatusDesc: 'Refunded status requires local handling',
+            }
+          : {}),
+      };
     }
 
-    const updatedTransaction = await this.prisma.transaction.update({
-      where: { partnerReferenceNo: transaction.partnerReferenceNo },
+    if (status === transaction.status) {
+      return transaction;
+    }
+
+    const updateResult = await this.prisma.transaction.updateMany({
+      where: {
+        partnerReferenceNo: transaction.partnerReferenceNo,
+        status: status === 'SUCCESS' ? { not: 'SUCCESS' } : 'PENDING',
+      },
       data: {
-        status: success ? 'SUCCESS' : 'FAILED',
-        ...(success ? { paidAt: new Date() } : {}),
+        status,
+        ...(status === 'SUCCESS' ? { paidAt: new Date() } : {}),
       },
     });
-    if (success) {
+
+    const updatedTransaction = await this.prisma.transaction.findUnique({
+      where: { partnerReferenceNo: transaction.partnerReferenceNo },
+    });
+    if (!updatedTransaction || updateResult.count === 0) {
+      return updatedTransaction ?? transaction;
+    }
+
+    if (status === 'SUCCESS') {
       this.gateService.emitPaymentStatus({
         partnerReferenceNo: updatedTransaction.partnerReferenceNo,
         transactionId: updatedTransaction.id,
@@ -396,6 +423,25 @@ export class BriService {
     return updatedTransaction;
   }
 
+  private mapTransactionStatus(
+    statusCode: string,
+  ): 'SUCCESS' | 'PENDING' | 'FAILED' | 'CANCELLED' | undefined {
+    switch (statusCode) {
+      case '00':
+        return 'SUCCESS';
+      case '01':
+      case '02':
+    case '03':
+        return 'PENDING';
+      case '05':
+        return 'CANCELLED';
+      case '06':
+        return 'FAILED';
+      default:
+        return undefined;
+    }
+  }
+
   private verifyWebhookSignature(
     signature: string | undefined,
     requestInfo: {
@@ -404,9 +450,9 @@ export class BriService {
       authorization?: string;
     },
   ) {
-    const secretCandidates = [this.webhookSecret, this.clientSecret].filter(
-      (secret): secret is string => typeof secret === 'string' && secret.length > 0,
-    );
+    const secretCandidates = this.webhookSecret
+      ? [{ name: 'BRI_WEBHOOK_SECRET', value: this.webhookSecret }]
+      : [];
 
     if (secretCandidates.length === 0) {
       throw new InternalServerErrorException(
@@ -435,29 +481,72 @@ export class BriService {
     const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
     const bodyHashAscii = Buffer.from(bodyHash, 'utf8').toString('hex');
     const stringToSign = `POST:/v1.1/qr-dynamic/qr-mpm-notify:${accessToken}:${bodyHashAscii}:${timestamp}`;
-    this.logger.debug({
-      rawBodyLength: requestInfo.rawBody?.length,
-      bodyHash,
-      bodyHashAscii,
-      stringToSign,
-    });
-    const receivedBuffer = Buffer.from(signature, 'base64');
-
-    for (const secret of secretCandidates) {
+    const transactionalStringToSign = `POST:/v1.1/qr-dynamic/qr-mpm-notify:${accessToken}:${bodyHash}:${timestamp}`;
+    const normalizedSignature = signature.trim();
+    const receivedBuffer = Buffer.from(normalizedSignature, 'base64');
+    const isCanonicalBase64 =
+      receivedBuffer.toString('base64') === normalizedSignature;
+    const signatureComparisons = secretCandidates.map(({ name, value }) => {
       const expectedBuffer = crypto
-        .createHmac('sha512', secret)
-        .update(stringToSign)
+        .createHmac('sha512', value)
+        .update(stringToSign, 'utf8')
         .digest();
-
-      if (
+      const matches =
+        isCanonicalBase64 &&
         expectedBuffer.length === receivedBuffer.length &&
-        crypto.timingSafeEqual(expectedBuffer, receivedBuffer)
-      ) {
-        return;
-      }
+        crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+
+      return {
+        secretCandidate: name,
+        expectedSignature: expectedBuffer.toString('base64'),
+        matches,
+      };
+    });
+
+    if (process.env.BRI_WEBHOOK_SIGNATURE_DEBUG === 'true') {
+      const diagnosticSecrets = [
+        { name: 'BRI_WEBHOOK_SECRET', value: this.webhookSecret },
+        { name: 'BRI_CLIENT_SECRET', value: this.clientSecret },
+      ].filter(
+        (candidate): candidate is { name: string; value: string } =>
+          typeof candidate.value === 'string' && candidate.value.length > 0,
+      );
+      const signatureVariantComparisons = [
+        { name: 'webhook-bodyHashAscii', value: stringToSign },
+        { name: 'transactional-bodyHash', value: transactionalStringToSign },
+      ].flatMap((signingString) =>
+        diagnosticSecrets.map((secret) => {
+          const expectedBuffer = crypto
+            .createHmac('sha512', secret.value)
+            .update(signingString.value, 'utf8')
+            .digest();
+
+          return {
+            signingFormat: signingString.name,
+            secretCandidate: secret.name,
+            expectedSignature: expectedBuffer.toString('base64'),
+            matches:
+              isCanonicalBase64 &&
+              expectedBuffer.length === receivedBuffer.length &&
+              crypto.timingSafeEqual(expectedBuffer, receivedBuffer),
+          };
+        }),
+      );
+
+      this.logger.warn({
+        bodyHash,
+        bodyHashAscii,
+        stringToSign,
+        transactionalStringToSign,
+        receivedSignature: normalizedSignature,
+        signatureComparisons,
+        signatureVariantComparisons,
+      });
     }
 
-    throw new UnauthorizedException('Invalid BRI webhook signature');
+    if (!signatureComparisons.some(({ matches }) => matches)) {
+      throw new UnauthorizedException('Invalid BRI webhook signature');
+    }
   }
 
   private buildTransactionHeaders(
