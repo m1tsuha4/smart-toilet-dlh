@@ -10,7 +10,6 @@ import { TransformResponseInterceptor } from './common/interceptors/transform-re
 import { QrisModule } from './qris/qris.module';
 import { TransactionModule } from './transaction/transaction.module';
 import { BriModule } from './bri/bri.module';
-import { AspiModule } from './aspi/aspi.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { GateModule } from './gate/gate.module';
 
@@ -26,7 +25,6 @@ import { GateModule } from './gate/gate.module';
     QrisModule,
     TransactionModule,
     BriModule,
-    AspiModule,
     DashboardModule,
     GateModule,
   ],

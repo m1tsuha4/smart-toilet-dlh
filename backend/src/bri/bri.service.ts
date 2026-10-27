@@ -1,18 +1,18 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
   UnauthorizedException,
-  Logger,
 } from '@nestjs/common';
 import axios from 'axios';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { DashboardService } from '../dashboard/dashboard.service';
 import { GateService } from '../gate/gate.service';
+import { BRI_CONFIG } from '../common/vault/vault-bri-config.service';
+import type { BriConfig } from '../common/vault/vault-bri-config.service';
 
 @Injectable()
 export class BriService {
@@ -20,56 +20,11 @@ export class BriService {
     private readonly prisma: PrismaService,
     private readonly dashboardService: DashboardService,
     private readonly gateService: GateService,
+    @Inject(BRI_CONFIG) private readonly config: BriConfig,
   ) {}
 
   private accessToken: string | null = null;
   private accessTokenExpiredAt = 0;
-
-  private readonly baseUrl = process.env.BRI_BASE_URL!;
-
-  private readonly clientId = process.env.BRI_CLIENT_ID!;
-  private readonly clientSecret = process.env.BRI_CLIENT_SECRET!;
-
-  private readonly partnerId = process.env.BRI_PARTNER_ID!;
-  private readonly channelId = process.env.BRI_CHANNEL_ID!;
-
-  private readonly merchantId = process.env.BRI_MERCHANT_ID!;
-  private readonly terminalId = process.env.BRI_TERMINAL_ID!;
-
-  private readonly privateKey = process.env.BRI_PRIVATE_KEY;
-  private readonly webhookSecret = process.env.BRI_WEBHOOK_SECRET;
-
-  private readonly logger = new Logger(BriService.name);
-
-  resolvePrivateKey(): string {
-    const configuredKey = this.privateKey?.trim();
-
-    if (configuredKey) {
-      const trimmed = configuredKey.trim();
-
-      if (trimmed.includes('BEGIN PRIVATE KEY')) {
-        return trimmed;
-      }
-
-      if (fs.existsSync(trimmed)) {
-        return fs.readFileSync(trimmed, 'utf8').trim();
-      }
-    }
-
-    const secretCandidates = [
-      path.resolve(process.cwd(), 'secrets', 'bri_private_key.pem'),
-    ];
-
-    for (const candidate of secretCandidates) {
-      if (fs.existsSync(candidate)) {
-        return fs.readFileSync(candidate, 'utf8').trim();
-      }
-    }
-
-    throw new InternalServerErrorException(
-      'BRI_PRIVATE_KEY is required. Set it in .env or place the PEM file under /secrets/bri_private_key.pem',
-    );
-  }
 
   /**
    * Generate timestamp ISO 8601
@@ -77,13 +32,9 @@ export class BriService {
   private generateTimestamp(): string {
     const now = new Date();
 
-    const jakartaTime = new Date(
-      now.getTime() + 7 * 60 * 60 * 1000,
-    );
+    const jakartaTime = new Date(now.getTime() + 7 * 60 * 60 * 1000);
 
-    return jakartaTime
-      .toISOString()
-      .slice(0, 19) + '+07:00';
+    return jakartaTime.toISOString().slice(0, 19) + '+07:00';
   }
   /**
    * Generate unique external ID.
@@ -107,23 +58,21 @@ export class BriService {
 
     const timestamp = this.generateTimestamp();
 
-    const stringToSign = `${this.clientId}|${timestamp}`;
+    const stringToSign = `${this.config.BRI_CLIENT_ID}|${timestamp}`;
 
     /**
      * Signature OAuth:
      * SHA256withRSA
      */
-    const privateKey = this.resolvePrivateKey();
-
     const signer = crypto.createSign('RSA-SHA256');
 
     signer.update(stringToSign);
     signer.end();
 
-    const signature = signer.sign(privateKey, 'base64');
+    const signature = signer.sign(this.config.BRI_PRIVATE_KEY, 'base64');
 
     const response = await axios.post(
-      `${this.baseUrl}/snap/v1.0/access-token/b2b`,
+      `${this.config.BRI_BASE_URL}/snap/v1.0/access-token/b2b`,
       {
         grantType: 'client_credentials',
         additionalInfo: {},
@@ -132,7 +81,7 @@ export class BriService {
         headers: {
           'Content-Type': 'application/json',
           'X-TIMESTAMP': timestamp,
-          'X-CLIENT-KEY': this.clientId,
+          'X-CLIENT-KEY': this.config.BRI_CLIENT_ID,
           'X-SIGNATURE': signature,
         },
       },
@@ -162,7 +111,10 @@ export class BriService {
       accessToken,
       tokenType: 'BearerToken',
       expiresIn: String(
-        Math.max(0, Math.floor((this.accessTokenExpiredAt - Date.now()) / 1000)),
+        Math.max(
+          0,
+          Math.floor((this.accessTokenExpiredAt - Date.now()) / 1000),
+        ),
       ),
     };
   }
@@ -188,7 +140,7 @@ export class BriService {
     const stringToSign = `${method}:${endpoint}:${accessToken}:${bodyHash}:${timestamp}`;
 
     return crypto
-      .createHmac('sha512', this.clientSecret)
+      .createHmac('sha512', this.config.BRI_CLIENT_SECRET)
       .update(stringToSign)
       .digest('base64');
   }
@@ -214,9 +166,9 @@ export class BriService {
         currency: 'IDR',
       },
 
-      merchantId: this.merchantId,
+      merchantId: this.config.BRI_MERCHANT_ID,
 
-      terminalId: this.terminalId,
+      terminalId: this.config.BRI_TERMINAL_ID,
     };
 
     const signature = this.generateSignature(
@@ -229,21 +181,25 @@ export class BriService {
 
     const externalId = this.generateExternalId();
 
-    const response = await axios.post(`${this.baseUrl}${endpoint}`, body, {
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
+    const response = await axios.post(
+      `${this.config.BRI_BASE_URL}${endpoint}`,
+      body,
+      {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
 
-        Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${accessToken}`,
 
-        'X-TIMESTAMP': timestamp,
-        'X-SIGNATURE': signature,
+          'X-TIMESTAMP': timestamp,
+          'X-SIGNATURE': signature,
 
-        'X-PARTNER-ID': this.partnerId,
-        'X-EXTERNAL-ID': externalId,
-        'CHANNEL-ID': this.channelId,
+          'X-PARTNER-ID': this.config.BRI_PARTNER_ID,
+          'X-EXTERNAL-ID': externalId,
+          'CHANNEL-ID': this.config.BRI_CHANNEL_ID,
+        },
       },
-    });
+    );
 
     const responseData = response.data as Record<string, unknown>;
     const referenceNo =
@@ -265,7 +221,7 @@ export class BriService {
         amount: qrAmount,
         status: 'PENDING',
         qrContent,
-        terminalId: this.terminalId,
+        terminalId: this.config.BRI_TERMINAL_ID,
         gateDeviceId: gateDevice.id,
         expiredAt: new Date(Date.now() + 15 * 60 * 1000),
       },
@@ -305,16 +261,26 @@ export class BriService {
       timestamp,
       body,
     );
-    const response = await axios.post(`${this.baseUrl}${endpoint}`, body, {
-      headers: this.buildTransactionHeaders(accessToken, timestamp, signature),
-    });
+    const response = await axios.post(
+      `${this.config.BRI_BASE_URL}${endpoint}`,
+      body,
+      {
+        headers: this.buildTransactionHeaders(
+          accessToken,
+          timestamp,
+          signature,
+        ),
+      },
+    );
 
     const responseAmount = this.getAmount(response.data);
     if (
       responseAmount !== undefined &&
       responseAmount !== Number(transaction.amount).toFixed(2)
     ) {
-      throw new BadRequestException('Inquiry amount does not match transaction');
+      throw new BadRequestException(
+        'Inquiry amount does not match transaction',
+      );
     }
 
     return this.applyPaymentStatus(transaction, response.data);
@@ -362,7 +328,11 @@ export class BriService {
   }
 
   private async applyPaymentStatus(
-    transaction: { partnerReferenceNo: string; amount: unknown; status: string },
+    transaction: {
+      partnerReferenceNo: string;
+      amount: unknown;
+      status: string;
+    },
     payload: Record<string, unknown>,
   ) {
     const statusCode = this.getString(payload, 'latestTransactionStatus');
@@ -431,7 +401,7 @@ export class BriService {
         return 'SUCCESS';
       case '01':
       case '02':
-    case '03':
+      case '03':
         return 'PENDING';
       case '05':
         return 'CANCELLED';
@@ -450,15 +420,6 @@ export class BriService {
       authorization?: string;
     },
   ) {
-    const secretCandidates = this.webhookSecret
-      ? [{ name: 'BRI_WEBHOOK_SECRET', value: this.webhookSecret }]
-      : [];
-
-    if (secretCandidates.length === 0) {
-      throw new InternalServerErrorException(
-        'BRI webhook secret is not configured',
-      );
-    }
     if (!signature) {
       throw new UnauthorizedException('BRI webhook signature is required');
     }
@@ -481,70 +442,20 @@ export class BriService {
     const bodyHash = crypto.createHash('sha256').update(body).digest('hex');
     const bodyHashAscii = Buffer.from(bodyHash, 'utf8').toString('hex');
     const stringToSign = `POST:/v1.1/qr-dynamic/qr-mpm-notify:${accessToken}:${bodyHashAscii}:${timestamp}`;
-    const transactionalStringToSign = `POST:/v1.1/qr-dynamic/qr-mpm-notify:${accessToken}:${bodyHash}:${timestamp}`;
     const normalizedSignature = signature.trim();
     const receivedBuffer = Buffer.from(normalizedSignature, 'base64');
     const isCanonicalBase64 =
       receivedBuffer.toString('base64') === normalizedSignature;
-    const signatureComparisons = secretCandidates.map(({ name, value }) => {
-      const expectedBuffer = crypto
-        .createHmac('sha512', value)
-        .update(stringToSign, 'utf8')
-        .digest();
-      const matches =
-        isCanonicalBase64 &&
-        expectedBuffer.length === receivedBuffer.length &&
-        crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+    const expectedBuffer = crypto
+      .createHmac('sha512', this.config.BRI_WEBHOOK_SECRET)
+      .update(stringToSign, 'utf8')
+      .digest();
+    const matches =
+      isCanonicalBase64 &&
+      expectedBuffer.length === receivedBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 
-      return {
-        secretCandidate: name,
-        expectedSignature: expectedBuffer.toString('base64'),
-        matches,
-      };
-    });
-
-    if (process.env.BRI_WEBHOOK_SIGNATURE_DEBUG === 'true') {
-      const diagnosticSecrets = [
-        { name: 'BRI_WEBHOOK_SECRET', value: this.webhookSecret },
-        { name: 'BRI_CLIENT_SECRET', value: this.clientSecret },
-      ].filter(
-        (candidate): candidate is { name: string; value: string } =>
-          typeof candidate.value === 'string' && candidate.value.length > 0,
-      );
-      const signatureVariantComparisons = [
-        { name: 'webhook-bodyHashAscii', value: stringToSign },
-        { name: 'transactional-bodyHash', value: transactionalStringToSign },
-      ].flatMap((signingString) =>
-        diagnosticSecrets.map((secret) => {
-          const expectedBuffer = crypto
-            .createHmac('sha512', secret.value)
-            .update(signingString.value, 'utf8')
-            .digest();
-
-          return {
-            signingFormat: signingString.name,
-            secretCandidate: secret.name,
-            expectedSignature: expectedBuffer.toString('base64'),
-            matches:
-              isCanonicalBase64 &&
-              expectedBuffer.length === receivedBuffer.length &&
-              crypto.timingSafeEqual(expectedBuffer, receivedBuffer),
-          };
-        }),
-      );
-
-      this.logger.warn({
-        bodyHash,
-        bodyHashAscii,
-        stringToSign,
-        transactionalStringToSign,
-        receivedSignature: normalizedSignature,
-        signatureComparisons,
-        signatureVariantComparisons,
-      });
-    }
-
-    if (!signatureComparisons.some(({ matches }) => matches)) {
+    if (!matches) {
       throw new UnauthorizedException('Invalid BRI webhook signature');
     }
   }
@@ -560,9 +471,9 @@ export class BriService {
       Authorization: `Bearer ${accessToken}`,
       'X-TIMESTAMP': timestamp,
       'X-SIGNATURE': signature,
-      'X-PARTNER-ID': this.partnerId,
+      'X-PARTNER-ID': this.config.BRI_PARTNER_ID,
       'X-EXTERNAL-ID': this.generateExternalId(),
-      'CHANNEL-ID': this.channelId,
+      'CHANNEL-ID': this.config.BRI_CHANNEL_ID,
     };
   }
 

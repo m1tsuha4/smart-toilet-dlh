@@ -10,8 +10,20 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    environment:
+      VAULT_ADDR: https://vault:8200
+      VAULT_APPROLE_FILE: /run/secrets/vault-approle.json
+      VAULT_CA_CERT: /run/secrets/vault-ca.crt
     volumes:
       - ./uploads:/usr/src/app/uploads
       - ./logs:/var/log/gate-qris
-      - ./secrets:/usr/src/app/secrets:ro
+      - /opt/vault/backend-credentials/approle.json:/run/secrets/vault-approle.json:ro
+      - /opt/vault/tls/ca.crt:/run/secrets/vault-ca.crt:ro
+    networks:
+      - smart-toilet-dlh
     restart: unless-stopped
+
+networks:
+  smart-toilet-dlh:
+    external: true
+    name: smart-toilet-dlh_default
