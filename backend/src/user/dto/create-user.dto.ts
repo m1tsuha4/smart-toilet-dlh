@@ -11,7 +11,7 @@ export const CreateUserSchema = z.object({
     .regex(/[0-9]/, 'Password must include a number')
     .regex(/[^A-Za-z0-9]/, 'Password must include a symbol'),
   name: z.string().min(3).max(255),
-  role: z.enum(['SUPERADMIN', 'ADMIN']).optional().default('ADMIN'),
+  role: z.enum(['SUPERADMIN', 'ADMIN', 'VENDOR']).optional().default('ADMIN'),
 });
 
 export class CreateUserDto extends createZodDto(CreateUserSchema) {}

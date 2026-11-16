@@ -26,7 +26,7 @@ export class DashboardController {
 
   @Get('gates')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   getGates() {
     return this.gateService.listDevices();
@@ -39,7 +39,7 @@ export class DashboardController {
 
   @Get('gate-open-logs')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
@@ -52,7 +52,7 @@ export class DashboardController {
 
   @Post('gates')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiBody({
     schema: {
@@ -65,7 +65,7 @@ export class DashboardController {
 
   @Delete('gates/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   removeGate(@Param('id') id: string) {
     return this.gateService.removeDevice(id);
@@ -73,7 +73,7 @@ export class DashboardController {
 
   @Post('gates/shutdown')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiBody({ schema: { example: { deviceCode: 'GATE-001' } } })
   shutdownGateDevice(@Body('deviceCode') deviceCode: string) {
@@ -85,7 +85,7 @@ export class DashboardController {
 
   @Post('gates/reboot')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiBody({ schema: { example: { deviceCode: 'GATE-001' } } })
   rebootGateDevice(@Body('deviceCode') deviceCode: string) {
@@ -97,7 +97,7 @@ export class DashboardController {
 
   @Post('gates/shutdown-schedule')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiBody({
     schema: { example: { deviceCode: 'GATE-001', time: '21:50' } },
@@ -121,7 +121,7 @@ export class DashboardController {
 
   @Get('gates/shutdown-schedule')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiQuery({ name: 'deviceCode', required: true, example: 'GATE-001' })
   getGateShutdownSchedule(@Query('deviceCode') deviceCode?: string) {
@@ -133,7 +133,7 @@ export class DashboardController {
 
   @Post('gate-open')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('VENDOR')
   @ApiBearerAuth()
   @ApiBody({
     schema: {
@@ -169,7 +169,7 @@ export class DashboardController {
 
   @Get('summary')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('ADMIN', 'SUPERADMIN', 'VENDOR')
   @ApiBearerAuth()
   getSummary() {
     return this.dashboardService.getSummary();
@@ -182,7 +182,7 @@ export class DashboardController {
 
   @Patch('settings/amount')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN', 'SUPERADMIN')
+  @Roles('ADMIN', 'SUPERADMIN', 'VENDOR')
   @ApiBearerAuth()
   @ApiBody({ schema: { example: { amount: 2000 } } })
   updateQrAmount(@Body('amount') amount: number) {

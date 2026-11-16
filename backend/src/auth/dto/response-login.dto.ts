@@ -22,7 +22,7 @@ export class ResponseLoginDto {
   @ApiProperty({
     example: 'SUPERADMIN',
     description: 'User role',
-    enum: ['SUPERADMIN', 'ADMIN'],
+    enum: ['SUPERADMIN', 'ADMIN', 'VENDOR'],
   })
   role: string;
 

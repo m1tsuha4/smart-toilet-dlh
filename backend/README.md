@@ -57,6 +57,14 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Seed accounts
+
+`npm run prisma:seed` creates the superadmin and vendor accounts if their email
+addresses do not already exist. Configure their credentials with
+`SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `VENDOR_EMAIL`, and
+`VENDOR_PASSWORD`. If omitted, the seeder uses development defaults; set
+explicit credentials in deployment environments.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
