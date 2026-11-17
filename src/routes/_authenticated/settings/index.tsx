@@ -21,7 +21,18 @@ export const Route = createFileRoute("/_authenticated/settings/")({
   component: SettingsPage,
 });
 
+function getCurrentRole(): string {
+  try {
+    const raw = localStorage.getItem("user-data");
+    return (JSON.parse(raw || "{}")?.role || "").toUpperCase();
+  } catch {
+    return "";
+  }
+}
+
 function SettingsPage() {
+  const [isVendor] = useState(() => getCurrentRole() === "VENDOR");
+
   const [amount, setAmount] = useState<number>(0);
   const [amountInput, setAmountInput] = useState<string>("");
   const [loadingAmount, setLoadingAmount] = useState(true);
@@ -73,6 +84,8 @@ function SettingsPage() {
     } finally {
       setLoadingAmount(false);
     }
+
+    if (!isVendor) return;
 
     try {
       setLoadingGates(true);
@@ -200,9 +213,11 @@ function SettingsPage() {
       });
       setNewGateName("");
       setNewGateCode("");
-      const res = await dashboardService.getGates();
-      const raw = res.data as any;
-      setGates(raw?.data || raw || []);
+      if (isVendor) {
+        const res = await dashboardService.getGates();
+        const raw = res.data as any;
+        setGates(raw?.data || raw || []);
+      }
       setTimeout(() => setGateFeedback(null), 3000);
     } catch (err: unknown) {
       const error = err as Error;
@@ -281,12 +296,20 @@ function SettingsPage() {
           Pengaturan Sistem
         </h1>
         <p className="text-[11px] text-gray-500">
-          Kelola tarif retribusi kios dan kontrol perangkat pintu toilet otomatis.
+          {isVendor
+            ? "Kelola tarif retribusi kios dan kontrol perangkat pintu toilet otomatis."
+            : "Kelola tarif retribusi kios dan pendaftaran perangkat gate."}
         </p>
       </div>
 
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-3">
-        <div className="space-y-3.5 lg:col-span-1">
+        <div
+          className={
+            isVendor
+              ? "space-y-3.5 lg:col-span-1"
+              : "grid grid-cols-1 gap-3.5 md:grid-cols-2 lg:col-span-2"
+          }
+        >
           <div className="rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs">
             <div className="flex items-center gap-1.5 font-semibold text-gray-800 text-xs">
               Tarif Retribusi
@@ -429,6 +452,7 @@ function SettingsPage() {
           </div>
         </div>
 
+        {isVendor && (
         <div className="lg:col-span-2">
           <div className="h-full rounded-xl border border-gray-100 bg-white p-3.5 shadow-xs flex flex-col justify-between">
             <div>
@@ -579,9 +603,10 @@ function SettingsPage() {
             </div>
           </div>
         </div>
+        )}
       </div>
 
-      {scheduleGate && (
+      {isVendor && scheduleGate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-2xs">
           <div className="w-full max-w-xs rounded-xl bg-white p-4 shadow-2xl animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-2.5">
