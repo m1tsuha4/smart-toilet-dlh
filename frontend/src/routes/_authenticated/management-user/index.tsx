@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_authenticated/management-user/")({
       (context as any)?.auth?.user?.role ||
       JSON.parse(localStorage.getItem("user-data") || "{}")?.role;
 
-    if (userRole?.toUpperCase() !== "SUPERADMIN") {
+    if (!["SUPERADMIN", "VENDOR"].includes(userRole?.toUpperCase())) {
       throw redirect({
         to: "/dashboard",
       });

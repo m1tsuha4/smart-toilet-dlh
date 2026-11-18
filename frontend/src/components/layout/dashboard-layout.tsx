@@ -42,7 +42,7 @@ const primaryNav: NavItem[] = [
     title: "Manajemen User",
     href: "/management-user",
     icon: Users,
-    roles: ["SUPERADMIN"],
+    roles: ["SUPERADMIN", "VENDOR"],
   },
   {
     title: "Settings",
