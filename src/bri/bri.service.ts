@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   InternalServerErrorException,
@@ -286,6 +287,43 @@ export class BriService {
     return this.applyPaymentStatus(transaction, response.data);
   }
 
+  async simulateSuccessPayment() {
+    const transaction = await this.prisma.transaction.findFirst({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!transaction) {
+      throw new NotFoundException('No pending transaction found to simulate');
+    }
+
+    const updateResult = await this.prisma.transaction.updateMany({
+      where: {
+        id: transaction.id,
+        status: 'PENDING',
+      },
+      data: {
+        status: 'SUCCESS',
+        paidAt: new Date(),
+        note: 'TEST ONLY: Success payment simulated.',
+      },
+    });
+    if (updateResult.count === 0) {
+      throw new ConflictException(
+        'Only pending transactions can be marked as a test success payment',
+      );
+    }
+
+    const updatedTransaction = await this.prisma.transaction.findUnique({
+      where: { id: transaction.id },
+    });
+    if (!updatedTransaction) {
+      throw new NotFoundException('Transaction not found');
+    }
+
+    await this.notifySuccessfulPayment(updatedTransaction);
+    return updatedTransaction;
+  }
+
   async handleNotification(
     payload: Record<string, unknown>,
     signature?: string,
@@ -379,18 +417,27 @@ export class BriService {
     }
 
     if (status === 'SUCCESS') {
-      this.gateService.emitPaymentStatus({
-        partnerReferenceNo: updatedTransaction.partnerReferenceNo,
-        transactionId: updatedTransaction.id,
-        status: 'SUCCESS',
-        amount: Number(updatedTransaction.amount).toFixed(2),
-      });
-      await this.gateService.openGateForTransaction(
-        updatedTransaction.gateDeviceId,
-        updatedTransaction.id,
-      );
+      await this.notifySuccessfulPayment(updatedTransaction);
     }
     return updatedTransaction;
+  }
+
+  private async notifySuccessfulPayment(transaction: {
+    partnerReferenceNo: string;
+    id: string;
+    amount: unknown;
+    gateDeviceId: string | null;
+  }) {
+    this.gateService.emitPaymentStatus({
+      partnerReferenceNo: transaction.partnerReferenceNo,
+      transactionId: "simulated-" + transaction.id,
+      status: 'SUCCESS',
+      amount: Number(transaction.amount).toFixed(2),
+    });
+    await this.gateService.openGateForTransaction(
+      transaction.gateDeviceId,
+      transaction.id,
+    );
   }
 
   private mapTransactionStatus(

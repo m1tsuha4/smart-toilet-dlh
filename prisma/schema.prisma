@@ -57,6 +57,7 @@ model Transaction {
   qrContent          String
   terminalId         String
   gateDeviceId       String?
+  note               String?
   createdAt          DateTime  @default(now())
   paidAt             DateTime?
   expiredAt          DateTime?

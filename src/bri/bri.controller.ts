@@ -45,6 +45,11 @@ export class BriController {
   inquiry(@Body('partnerReferenceNo') partnerReferenceNo: string) {
     return this.briService.inquiry(partnerReferenceNo);
   }
+
+  @Post('test/success-payment')
+  testSuccessPayment() {
+    return this.briService.simulateSuccessPayment();
+  }
 }
 
 @Controller()

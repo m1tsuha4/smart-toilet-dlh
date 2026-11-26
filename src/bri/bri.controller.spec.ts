@@ -14,8 +14,8 @@ describe('BriController', () => {
           provide: BriService,
           useValue: {
             generateQR: jest.fn(),
-            getAccessTokenResponse: jest.fn(),
-            payment: jest.fn(),
+            inquiry: jest.fn(),
+            simulateSuccessPayment: jest.fn(),
           },
         },
       ],
@@ -35,21 +35,9 @@ describe('BriController', () => {
     expect(service.generateQR).toHaveBeenCalledWith('GATE-002');
   });
 
-  it('returns the formatted access-token response', async () => {
-    await controller.getToken();
+  it('calls the test success-payment service operation without a reference', async () => {
+    await controller.testSuccessPayment();
 
-    expect(service.getAccessTokenResponse).toHaveBeenCalledWith();
-  });
-
-  it('should call payment on the service', async () => {
-    const payload = {
-      partnerReferenceNo: 'GATE-123',
-      otp: '123456',
-      verificationId: 'abc-123',
-    };
-
-    await controller.payment(payload);
-
-    expect(service.payment).toHaveBeenCalledWith(payload);
+    expect(service.simulateSuccessPayment).toHaveBeenCalledWith();
   });
 });
