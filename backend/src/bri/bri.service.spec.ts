@@ -51,6 +51,80 @@ describe('BriService', () => {
     expect(service).toBeDefined();
   });
 
+  it('marks a pending transaction as test-paid and opens its gate', async () => {
+    const pendingTransaction = {
+      id: 'transaction-1',
+      partnerReferenceNo: 'partner-1',
+      amount: '2000.00',
+      status: 'PENDING',
+      gateDeviceId: 'gate-1',
+    };
+    const successfulTransaction = {
+      ...pendingTransaction,
+      status: 'SUCCESS',
+      note: 'TEST ONLY: Success payment simulated.',
+    };
+    const prisma = {
+      transaction: {
+        findFirst: jest.fn().mockResolvedValue(pendingTransaction),
+        findUnique: jest
+          .fn()
+          .mockResolvedValueOnce(successfulTransaction),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const gate = {
+      emitPaymentStatus: jest.fn(),
+      openGateForTransaction: jest.fn(),
+    };
+    const svc = new BriService(
+      prisma as any,
+      {} as any,
+      gate as any,
+      briConfig,
+    );
+
+    await expect(svc.simulateSuccessPayment()).resolves.toEqual(
+      successfulTransaction,
+    );
+    expect(prisma.transaction.findFirst).toHaveBeenCalledWith({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(prisma.transaction.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'transaction-1', status: 'PENDING' },
+        data: expect.objectContaining({
+          status: 'SUCCESS',
+          note: 'TEST ONLY: Success payment simulated.',
+        }),
+      }),
+    );
+    expect(gate.emitPaymentStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partnerReferenceNo: 'partner-1',
+        status: 'SUCCESS',
+      }),
+    );
+    expect(gate.openGateForTransaction).toHaveBeenCalledWith(
+      'gate-1',
+      'transaction-1',
+    );
+  });
+
+  it('rejects when there is no pending transaction to simulate', async () => {
+    const prisma = {
+      transaction: {
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    const svc = new BriService(prisma as any, {} as any, {} as any, briConfig);
+
+    await expect(svc.simulateSuccessPayment()).rejects.toThrow(
+      'No pending transaction found to simulate',
+    );
+  });
+
   it('signs the access-token request with the injected RSA private key', async () => {
     let requestTimestamp: string | undefined;
     let requestSignature: string | undefined;

@@ -7,12 +7,16 @@ import {
   Post,
   Res,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { BriService } from './bri.service';
-import { ApiBody, ApiOkResponse } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiBody, ApiOkResponse } from '@nestjs/swagger';
 import { SkipResponseTransform } from '../common/decorators/skip-response-transform.decorator';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { RolesGuard } from 'src/auth/guard/roles.guard';
+import { JwtAuthGuard } from 'src/auth/guard/jwt-guard.auth';
 
 @Controller('bri')
 export class BriController {
@@ -44,6 +48,14 @@ export class BriController {
   })
   inquiry(@Body('partnerReferenceNo') partnerReferenceNo: string) {
     return this.briService.inquiry(partnerReferenceNo);
+  }
+
+  @Post('test/success-payment')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('VENDOR')
+  testSuccessPayment() {
+    return this.briService.simulateSuccessPayment();
   }
 }
 

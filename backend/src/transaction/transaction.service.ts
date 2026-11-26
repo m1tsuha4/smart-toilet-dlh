@@ -67,6 +67,7 @@ export class TransactionService {
       referenceNo: transaction.referenceNo,
       amount: Number(transaction.amount),
       status: transaction.status,
+      note: transaction.note ?? '',
       terminalId: transaction.terminalId,
       createdAt: transaction.createdAt.toISOString(),
       paidAt: transaction.paidAt?.toISOString() ?? '',
